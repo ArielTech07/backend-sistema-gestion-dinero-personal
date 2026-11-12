@@ -24,7 +24,6 @@ import lombok.RequiredArgsConstructor;
 @RestController
 @RequestMapping("/api/prestamos")
 @RequiredArgsConstructor
-@CrossOrigin(origins = "http://localhost:5173")
 public class PrestamoController {
 
     private final PrestamoService prestamoService;
