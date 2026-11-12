@@ -38,3 +38,8 @@ build/
 *.env
 application-local.properties
 application-dev.properties
+
+# Google Calendar Credentials
+*google-calendar*.json
+*-credentials.json
+credentials.json

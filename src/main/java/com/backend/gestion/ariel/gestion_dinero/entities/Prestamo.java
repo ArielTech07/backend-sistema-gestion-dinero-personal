@@ -43,7 +43,7 @@ import lombok.ToString;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-@ToString(exclude = {"usuario", "pagos"})
+@ToString(exclude = { "usuario", "pagos" })
 public class Prestamo {
 
     @Id
@@ -89,10 +89,13 @@ public class Prestamo {
 
     @Builder.Default
     @Column(name = "estado", length = 30, nullable = false)
-    private String estado = "ACTIVO"; 
+    private String estado = "ACTIVO";
 
     @Column(name = "ultimo_mes_pagado", length = 20)
     private String ultimoMesPagado;
+
+    @Column(name = "google_calendar_event_id", length = 300)
+    private String googleCalendarEventId;
 
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;

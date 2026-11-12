@@ -12,6 +12,7 @@ import com.backend.gestion.ariel.gestion_dinero.entities.Pago;
 import com.backend.gestion.ariel.gestion_dinero.entities.Prestamo;
 import com.backend.gestion.ariel.gestion_dinero.repositories.PagoRepository;
 import com.backend.gestion.ariel.gestion_dinero.repositories.PrestamoRepository;
+import com.backend.gestion.ariel.gestion_dinero.services.GoogleCalendarService;
 import com.backend.gestion.ariel.gestion_dinero.services.PagoService;
 
 import lombok.RequiredArgsConstructor;
@@ -22,6 +23,7 @@ public class PagoServiceImpl implements PagoService {
 
     private final PagoRepository pagoRepository;
     private final PrestamoRepository prestamoRepository;
+    private final GoogleCalendarService googleCalendarService;
 
     @Override
     @Transactional(readOnly = true)
@@ -56,6 +58,7 @@ public class PagoServiceImpl implements PagoService {
             prestamo.setCapitalActual(BigDecimal.ZERO);
             prestamo.setInteresMensual(BigDecimal.ZERO);
             prestamo.setEstado("LIQUIDADO");
+            eliminarEventoCalendarSiExiste(prestamo);
         } else if ("CAPITAL".equals(tipoPago) || "ABONO_CAPITAL".equals(tipoPago)) {
             BigDecimal capitalActual = prestamo.getCapitalActual();
 
@@ -72,12 +75,19 @@ public class PagoServiceImpl implements PagoService {
                 prestamo.setCapitalActual(BigDecimal.ZERO);
                 prestamo.setInteresMensual(BigDecimal.ZERO);
                 prestamo.setEstado("LIQUIDADO");
+                eliminarEventoCalendarSiExiste(prestamo);
             } else {
                 // Recalcular interés mensual según el nuevo capital pendiente
                 BigDecimal nuevoInteres = nuevoCapital
                         .multiply(prestamo.getTasaInteres())
                         .divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
                 prestamo.setInteresMensual(nuevoInteres);
+                // Actualizar montos en la descripción del evento de Calendar
+                try {
+                    googleCalendarService.actualizarEvento(prestamo);
+                } catch (Exception e) {
+                    System.err.println("No se pudo actualizar evento de Calendar tras abono a capital: " + e.getMessage());
+                }
             }
         }
 
@@ -97,6 +107,17 @@ public class PagoServiceImpl implements PagoService {
             throw new IllegalArgumentException("Pago no encontrado con ID: " + id);
         }
         pagoRepository.deleteById(id);
+    }
+
+    private void eliminarEventoCalendarSiExiste(Prestamo prestamo) {
+        if (prestamo.getGoogleCalendarEventId() != null && !prestamo.getGoogleCalendarEventId().isBlank()) {
+            try {
+                googleCalendarService.eliminarEvento(prestamo.getGoogleCalendarEventId());
+                prestamo.setGoogleCalendarEventId(null);
+            } catch (Exception e) {
+                System.err.println("No se pudo eliminar evento de Calendar al liquidar préstamo: " + e.getMessage());
+            }
+        }
     }
 }
 

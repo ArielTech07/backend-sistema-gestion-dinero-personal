@@ -5,6 +5,7 @@ import java.math.RoundingMode;
 import java.util.List;
 import java.util.Optional;
 
+import org.hibernate.jdbc.Expectations;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -12,6 +13,7 @@ import com.backend.gestion.ariel.gestion_dinero.entities.Prestamo;
 import com.backend.gestion.ariel.gestion_dinero.entities.Usuario;
 import com.backend.gestion.ariel.gestion_dinero.repositories.PrestamoRepository;
 import com.backend.gestion.ariel.gestion_dinero.repositories.UsuarioRepository;
+import com.backend.gestion.ariel.gestion_dinero.services.GoogleCalendarService;
 import com.backend.gestion.ariel.gestion_dinero.services.PrestamoService;
 
 import lombok.RequiredArgsConstructor;
@@ -22,6 +24,7 @@ public class PrestamoServiceImpl implements PrestamoService {
 
     private final PrestamoRepository prestamoRepository;
     private final UsuarioRepository usuarioRepository;
+    private final GoogleCalendarService googleCalendarService;
 
     @Override
     @Transactional(readOnly = true)
@@ -65,7 +68,7 @@ public class PrestamoServiceImpl implements PrestamoService {
             prestamo.setTasaInteres(usuario.getTasaDefault());
         }
 
-        // Calcular interés mensual: (capitalActual * tasaInteres) / 100
+        
         if (prestamo.getCapitalActual() != null && prestamo.getTasaInteres() != null) {
             BigDecimal interes = prestamo.getCapitalActual()
                     .multiply(prestamo.getTasaInteres())
@@ -77,7 +80,17 @@ public class PrestamoServiceImpl implements PrestamoService {
             prestamo.setEstado("ACTIVO");
         }
 
-        return prestamoRepository.save(prestamo);
+        Prestamo saved = prestamoRepository.save(prestamo);
+
+        try {
+            String eventId = googleCalendarService.crearEventoCobro(saved);
+            saved.setGoogleCalendarEventId(eventId);
+            prestamoRepository.save(saved);
+        } catch (Exception e) {
+            System.err.println("No se pudo crear evento en Calendar " + e.getMessage());
+        }
+
+        return saved;
     }
 
     @Override
@@ -92,6 +105,19 @@ public class PrestamoServiceImpl implements PrestamoService {
 
         if (datosActualizados.getEstado() != null && !datosActualizados.getEstado().isBlank()) {
             prestamo.setEstado(datosActualizados.getEstado());
+            // Si el préstamo pasa a PAGADO, LIQUIDADO o CANCELADO, eliminar evento de Google Calendar
+            if ("PAGADO".equalsIgnoreCase(datosActualizados.getEstado())
+                    || "LIQUIDADO".equalsIgnoreCase(datosActualizados.getEstado())
+                    || "CANCELADO".equalsIgnoreCase(datosActualizados.getEstado())) {
+                if (prestamo.getGoogleCalendarEventId() != null) {
+                    try {
+                        googleCalendarService.eliminarEvento(prestamo.getGoogleCalendarEventId());
+                        prestamo.setGoogleCalendarEventId(null);
+                    } catch (Exception e) {
+                        System.err.println("No se pudo eliminar evento al cambiar estado: " + e.getMessage());
+                    }
+                }
+            }
         }
 
         if (datosActualizados.getTasaInteres() != null) {
@@ -105,7 +131,20 @@ public class PrestamoServiceImpl implements PrestamoService {
             }
         }
 
-        return prestamoRepository.save(prestamo);
+        Prestamo actualizado = prestamoRepository.save(prestamo);
+
+        // Si sigue activo, sincronizar cambios en el evento de Calendar
+        if (!"PAGADO".equalsIgnoreCase(actualizado.getEstado())
+                && !"LIQUIDADO".equalsIgnoreCase(actualizado.getEstado())
+                && !"CANCELADO".equalsIgnoreCase(actualizado.getEstado())) {
+            try {
+                googleCalendarService.actualizarEvento(actualizado);
+            } catch (Exception e) {
+                System.err.println("No se pudo actualizar evento en Calendar: " + e.getMessage());
+            }
+        }
+
+        return actualizado;
     }
 
     @Override
@@ -114,7 +153,16 @@ public class PrestamoServiceImpl implements PrestamoService {
         if (!prestamoRepository.existsById(id)) {
             throw new IllegalArgumentException("Préstamo no encontrado con ID: " + id);
         }
+        Prestamo prestamo=prestamoRepository.findById(id).orElseThrow();
+        
+        if (prestamo.getGoogleCalendarEventId()!=null) {
+            
+            try{
+                googleCalendarService.eliminarEvento(prestamo.getGoogleCalendarEventId());
+            }catch(Exception e){
+                System.err.println("No se pudo eliminar evento de Calendar "+e.getMessage());
+            }
+        }
         prestamoRepository.deleteById(id);
     }
 }
-
